@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Top Menu -->
+    <menuitem id="menu_simple_dashboard_root"
+              name="Simple Dashboard"
+              sequence="10"/>
+
+    <!-- Sub Menus using existing actions -->
+    <menuitem id="menu_simple_dashboard_sales"
+              name="Sales Overview"
+              parent="menu_simple_dashboard_root"
+              action="sale.action_orders"
+              sequence="10"/>
+
+    <menuitem id="menu_simple_dashboard_crm"
+              name="CRM Overview"
+              parent="menu_simple_dashboard_root"
+              action="crm.crm_lead_opportunities"
+              sequence="20"/>
+</odoo>
