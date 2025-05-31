@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Summary Form View -->
+    <record id="view_dashboard_summary_form" model="ir.ui.view">
+        <field name="name">dashboard.summary.form</field>
+        <field name="model">dashboard.summary</field>
+        <field name="arch" type="xml">
+            <form string="AI Dashboard Summary">
+                <header>
+                    <button name="action_generate_summary" 
+                            string="🤖 Generate AI Summary" 
+                            type="object" 
+                            class="oe_highlight"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="summary_type"/>
+                            <field name="days_range"/>
+                        </group>
+                        <group>
+                            <field name="llm_provider"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="AI Summary" name="summary">
+                            <field name="summary_text" widget="html"/>
+                        </page>
+                        <page string="Raw Data" name="data">
+                            <field name="data_preview" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Summary Action -->
+    <record id="action_dashboard_summary" model="ir.actions.act_window">
+        <field name="name">AI Summary Generator</field>
+        <field name="res_model">dashboard.summary</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{}</field>
+    </record>
+    
+</odoo>

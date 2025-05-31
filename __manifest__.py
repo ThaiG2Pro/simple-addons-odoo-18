@@ -8,12 +8,15 @@
         - Top menu with sub-menus
         - View core information from Sales
         - View core information from CRM
+        - AI powered insights
     """,
-    'author': 'Your Company',
+    'author': 'ThaiG2Pro',
     'website': 'https://www.yourcompany.com',
     'depends': ['base', 'sale', 'crm'],
     'data': [
+        'security/ir.model.access.csv',
         'views/dashboard_views.xml',
+        'views/summary_views.xml',
     ],
     'installable': True,
     'auto_install': False,

@@ -17,4 +17,10 @@
               parent="menu_simple_dashboard_root"
               action="crm.crm_lead_opportunities"
               sequence="20"/>
+    <!-- NEW: AI Summary Menu -->
+    <menuitem id="menu_simple_dashboard_ai_summary"
+              name="🤖 AI Summary"
+              parent="menu_simple_dashboard_root"
+              action="action_dashboard_summary"
+              sequence="30"/>
 </odoo>
