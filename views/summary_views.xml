@@ -11,6 +11,11 @@
                             string="🤖 Generate AI Summary" 
                             type="object" 
                             class="oe_highlight"/>
+                    <button name="action_export_pdf" 
+                            string="📄 Export PDF" 
+                            type="object" 
+                            
+                            class="btn-secondary"/>
                 </header>
                 <sheet>
                     <group>
@@ -20,6 +25,7 @@
                         </group>
                         <group>
                             <field name="llm_provider"/>
+                            <field name="enable_pdf_export"/>
                         </group>
                     </group>
                     

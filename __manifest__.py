@@ -13,6 +13,9 @@
     'author': 'ThaiG2Pro',
     'website': 'https://www.yourcompany.com',
     'depends': ['base', 'sale', 'crm'],
+    'external_dependencies': {
+        'python': ['markdown', 'requests'],  # weasyprint is optional for PDF export
+    },
     'data': [
         'security/ir.model.access.csv',
         'views/dashboard_views.xml',
