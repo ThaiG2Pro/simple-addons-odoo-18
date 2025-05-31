@@ -1,0 +1,48 @@
+# Bỏ qua file biên dịch Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Bỏ qua virtual environment (nếu dùng venv, conda, poetry...)
+venv/
+env/
+.venv/
+ENV/
+*.env
+
+# Bỏ qua file log, debug
+*.log
+*.pot
+*.mo
+
+# Bỏ qua file tạm thời do IDE tạo
+*.swp
+*~
+*.bak
+*.tmp
+*.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Jupyter Notebook checkpoint (nếu có)
+.ipynb_checkpoints/
+
+# Nếu dùng Odoo (như Thái đang làm):
+*.zip
+*.dat
+*.db
+*.egg-info/
+*.pyo
+*.so
+*.cache/
+*.pot
+*.mo
+
+# Nếu deploy, tránh commit các file sau
+*.sqlite3
+*.lock
