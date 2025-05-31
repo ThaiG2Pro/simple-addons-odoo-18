@@ -12,10 +12,11 @@
                             type="object" 
                             class="oe_highlight"/>
                     <button name="action_export_pdf" 
-                            string="📄 Export PDF" 
+                            string="📄 Export PDF (Rich)" 
                             type="object" 
                             
                             class="btn-secondary"/>
+
                 </header>
                 <sheet>
                     <group>
