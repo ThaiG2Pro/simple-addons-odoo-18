@@ -18,8 +18,8 @@ class DashboardSummary(models.TransientModel):
     data_preview = fields.Text('Data Preview', readonly=True)
     llm_provider = fields.Selection([
         ('mock', 'Mock/Demo (No API)'),
-        ('openai', 'OpenAI GPT'),
-        ('claude', 'Anthropic Claude')
+        ('groq', 'Groq AI'),
+        
     ], string='AI Provider', default='mock', required=True)
     
     days_range = fields.Integer('Days to Analyze', default=30, required=True)
@@ -167,10 +167,9 @@ Analysis requested by: {self.env.user.name}
         
         if self.llm_provider == 'mock':
             return self._generate_mock_summary(data_text)
-        elif self.llm_provider == 'openai':
-            return self._call_openai(prompt)
-        elif self.llm_provider == 'claude':
-            return self._call_claude(prompt)
+        elif self.llm_provider == 'groq':
+            return self._call_groq(prompt)
+
         else:
             return "<p>Please select an AI provider to generate summary.</p>"
     
@@ -212,10 +211,38 @@ Analysis requested by: {self.env.user.name}
         """
         return summary
     
-    def _call_openai(self, prompt):
-        """Call OpenAI API - implement when ready"""
-        return "<p>OpenAI integration ready - add your API key to enable.</p>"
+    def _call_groq(self, prompt):
+            """Real Groq API call"""
+            
+            api_key = "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"  # Or get from system parameters
+            
+            try:
+                response = requests.post(
+                    'https://api.groq.com/openai/v1/chat/completions',
+                    headers={
+                        'Authorization': f'Bearer {api_key}',
+                        'Content-Type': 'application/json'
+                    },
+                    json={
+                        'model': 'llama-3.3-70b-versatile',  # Groq's model
+                        'messages': [{'role': 'user', 'content': prompt}],
+                        'max_tokens': 800,
+                        'temperature': 0.7
+                    },
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    ai_text = result['choices'][0]['message']['content']
+                    formatted_text = ai_text.replace('\n', '<br>')
+                    return f"<div style='font-family: Arial;'>{formatted_text}</div>"
+                else:
+                    return f"<p>Error: {response.status_code} - {response.text}</p>"
+                    
+            except Exception as e:
+                return f"<p>API Error: {str(e)}</p>"
     
-    def _call_claude(self, prompt):
-        """Call Claude API - implement when ready"""
-        return "<p>Claude integration ready - add your API key to enable.</p>"
+    # def _call_claude(self, prompt):
+    #     """Call Claude API - implement when ready"""
+    #     return "<p>Claude integration ready - add your API key to enable.</p>"
