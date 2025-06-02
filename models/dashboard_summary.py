@@ -25,9 +25,43 @@ class DashboardSummary(models.TransientModel):
         
     ], string='AI Provider', default='mock', required=True)
     
-    days_range = fields.Integer('Days to Analyze', default=30, required=True)
-    enable_pdf_export = fields.Boolean('Enable PDF Export', default=False, help="Enable PDF generation (requires WeasyPrint)")
-    
+    # Model updates
+    date_start = fields.Date(string='Start Date')
+    date_end = fields.Date(string='End Date', default=fields.Date.today)
+    date_range_type = fields.Selection([
+        ('last_7', 'Last 7 Days'),
+        ('last_30', 'Last 30 Days'),
+        ('this_month', 'This Month'),
+        ('custom', 'Custom Range')
+    ], string='Range Type', default='last_30')
+
+    # Keep compatibility
+    days_range = fields.Integer(compute='_compute_days_range', inverse='_inverse_days_range', store=True)
+
+    @api.depends('date_start', 'date_end')
+    def _compute_days_range(self):
+        for record in self:
+            if record.date_start and record.date_end:
+                delta = record.date_end - record.date_start
+                record.days_range = delta.days
+            else:
+                record.days_range = 30  # Default
+    @api.onchange('date_range_type')
+    def _onchange_date_range_type(self):
+        """Update date_start and date_end based on selected range type"""
+        today = fields.Date.today()
+        
+        if self.date_range_type == 'last_7':
+            self.date_start = today - timedelta(days=7)
+            self.date_end = today
+        elif self.date_range_type == 'last_30':
+            self.date_start = today - timedelta(days=30)
+            self.date_end = today
+        elif self.date_range_type == 'this_month':
+            self.date_start = today.replace(day=1)
+            self.date_end = today
+        # For 'custom', let the user set the dates
+        
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -68,8 +102,8 @@ class DashboardSummary(models.TransientModel):
     
     def _get_sales_data(self):
         """Extract sales data for analysis"""
-        end_date = fields.Date.today()
-        start_date = end_date - timedelta(days=self.days_range)
+        end_date = self.date_end or fields.Date.today()
+        start_date = self.date_start or (end_date - timedelta(days=self.days_range))
         
         sales_orders = self.env['sale.order'].search([
             ('date_order', '>=', start_date),
@@ -112,9 +146,9 @@ SALES PERFORMANCE ({start_date} to {end_date}):
     
     def _get_crm_data(self):
         """Extract CRM data for analysis"""
-        end_date = fields.Date.today()
-        start_date = end_date - timedelta(days=self.days_range)
-        
+        end_date = self.date_end or fields.Date.today()
+        start_date = self.date_start or (end_date - timedelta(days=self.days_range))
+
         opportunities = self.env['crm.lead'].search([
             ('type', '=', 'opportunity'),
             ('create_date', '>=', start_date),

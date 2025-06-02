@@ -46,3 +46,7 @@ Thumbs.db
 # Nếu deploy, tránh commit các file sau
 *.sqlite3
 *.lock
+*.md
+todo
+temp.py
+test_pdf.py
