@@ -61,7 +61,14 @@ class DashboardSummary(models.TransientModel):
             self.date_start = today.replace(day=1)
             self.date_end = today
         # For 'custom', let the user set the dates
-        
+    @api.onchange('date_start')
+    def _onchange_date_start(self):
+        if self.date_start and self.date_end and self.date_start > self.date_end:
+            self.date_end = self.date_start
+    @api.onchange('date_end')
+    def _onchange_date_end(self):
+        if self.date_start and self.date_end and self.date_start > self.date_end:
+            self.date_start = self.date_end
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
