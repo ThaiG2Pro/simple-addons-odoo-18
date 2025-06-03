@@ -539,6 +539,7 @@ MOVEMENT & TURNOVER ANALYSIS:
         
         # Reorder Alerts
         if 'reorder_alerts' in selected_insights:
+            product_movements = {}
             low_stock_products = []
             critical_stock_products = []
             for quant in stock_quants:
@@ -573,7 +574,7 @@ LOW STOCK & REORDER ALERTS:
             # Fast vs slow moving analysis
             fast_moving = []
             slow_moving = []
-            
+            product_movements = {}
             for product, movements in product_movements.items():
                 total_movement = movements['in'] + movements['out']
                 if total_movement > 10:  # Fast moving threshold
