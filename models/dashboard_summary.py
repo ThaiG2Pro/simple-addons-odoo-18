@@ -5,16 +5,17 @@ import markdown
 import base64
 from datetime import datetime, timedelta
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 class DashboardSummary(models.TransientModel):
     _name = 'dashboard.summary'
     _description = 'AI Dashboard Summary'
 
     summary_type = fields.Selection([
-        ('sales', 'Sales Summary'),
-        ('crm', 'CRM Summary'),
-        ('combined', 'Combined Summary')
+    ('sales', 'Sales Summary'),
+    ('inventory', 'Inventory Summary'),
+    ('manufacturing', 'Manufacturing Summary'),
+    ('combined', 'Combined Summary')
     ], string='Summary Type', default='sales', required=True)
     
     summary_text = fields.Html('AI Summary', readonly=True)
@@ -28,94 +29,47 @@ class DashboardSummary(models.TransientModel):
     # Model updates
     date_start = fields.Date(string='Start Date')
     date_end = fields.Date(string='End Date', default=fields.Date.today)
-    date_range_type = fields.Selection([
-        ('last_7', 'Last 7 Days'),
-        ('last_30', 'Last 30 Days'),
-        ('this_month', 'This Month'),
-        ('custom', 'Custom Range')
-    ], string='Range Type', default='last_30', required=True)
 
-    # Keep compatibility
-    days_range = fields.Integer(compute='_compute_days_range', inverse='_inverse_days_range', store=True)
-
-    @api.depends('date_start', 'date_end', 'date_range_type')
-    def _compute_days_range(self):
-        for record in self:
-            if record.date_start and record.date_end:
-                delta = record.date_end - record.date_start
-                record.days_range = delta.days + 1
-            else:
-                record.days_range = 30  # Default
-    def _inverse_days_range(self):
-        if record.days_range and record.date_end:
-            record.date_start = record.date_end - timedelta(days=record.days_range - 1)
-        elif record.days_range and not record.date_end:
-            today = fields.Date.today()
-            record.date_end = today
-            record.date_start = today - timedelta(days=record.days_range - 1)
-    @api.onchange('date_range_type')
-    def _onchange_date_range_type(self):
-        if not self.date_range_type or self.date_range_type == 'custom':
-            return
-        today = fields.Date.today()
-        self.date_end = today
-
-        if self.date_range_type == 'last_7':
-            self.date_start = today - timedelta(days=7)
-        elif self.date_range_type == 'last_30':
-            self.date_start = today - timedelta(days=30)
-        elif self.date_range_type == 'this_month':
-            self.date_start = today.replace(day=1)
-
-        # For 'custom', let the user set the dates
     @api.onchange('date_start')
     def _onchange_date_start(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
             self.date_end = self.date_start
 
-        if self.date_range_type != 'custom':
-            self.date_range_type = 'custom'
     @api.onchange('date_end')
     def _onchange_date_end(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
             self.date_start = self.date_end
-
-        if self.date_range_type != 'custom':
-            self.date_range_type = 'custom'
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-    
-        # Requirement 1: Default 30 days range, end_date = today, start_date = today - 30
+
         today = fields.Date.today()
-    
-        if 'date_end' in fields_list:
+        if 'date_end' in fields_list and 'date_end' not in res:
             res['date_end'] = today
-    
-        if 'date_start' in fields_list:
+        if 'date_start' in fields_list and 'date_start' not in res:
             res['date_start'] = today - timedelta(days=30)
-    
-        if 'date_range_type' in fields_list:
-            res['date_range_type'] = 'last_30'
-    
         # Set welcome message
-        if 'summary_text' in fields_list:
+        if 'summary_text' in fields_list and 'summary_text' not in res:
             res['summary_text'] = f'<p>Ready to generate summary for {self.env.user.name}</p>'
-    
         return res
     
     def action_generate_summary(self):
         """Generate AI summary based on selected type"""
+        print(f"BEFORE: start={self.date_start}, end={self.date_end}")
         try:
+            
+
             if self.summary_type == 'sales':
                 data_text = self._get_sales_data()
-            elif self.summary_type == 'crm':
-                data_text = self._get_crm_data()
+            elif self.summary_type == 'inventory':
+                data_text = self._get_inventory_data()
+            elif self.summary_type == 'manufacturing':
+                data_text = self._get_manufacturing_data()
             else:  # combined
                 sales_data = self._get_sales_data()
-                crm_data = self._get_crm_data()
-                data_text = f"SALES DATA:\n{sales_data}\n\nCRM DATA:\n{crm_data}"
-            
+                inventory_data = self._get_inventory_data()
+                manufacturing_data = self._get_manufacturing_data()
+                data_text = f"SALES DATA:\n{sales_data}\n\nINVENTORY DATA:\n{inventory_data}\n\nMANUFACTURING DATA:\n{manufacturing_data}"
             # Store data preview
             self.data_preview = data_text
             
@@ -123,6 +77,8 @@ class DashboardSummary(models.TransientModel):
             summary = self._call_llm(data_text)
             self.summary_text = summary
             
+            # Restore the date values after processing
+            print(f"AFTER: start={self.date_start}, end={self.date_end}")
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'dashboard.summary',
@@ -132,6 +88,10 @@ class DashboardSummary(models.TransientModel):
                 'name': f'AI {self.summary_type.title()} Summary'
             }
             
+        #     return {
+        #     'type': 'ir.actions.client',
+        #     'tag': 'reload',
+        # }
         except Exception as e:
             raise UserError(f"Error generating summary: {str(e)}")
     
@@ -143,7 +103,7 @@ class DashboardSummary(models.TransientModel):
         if not end_date:
             end_date = fields.Date.today()
         if not start_date:
-            start_date = end_date - timedelta(days=self.days_range or 30)
+            start_date = end_date - timedelta(days=30)
 
         sales_orders = self.env['sale.order'].search([
             ('date_order', '>=', start_date),
@@ -184,110 +144,231 @@ SALES PERFORMANCE ({start_date} to {end_date}):
 • Top Products: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products])}
         """.strip()
     
-    def _get_crm_data(self):
-        """Extract CRM data for analysis"""
-        end_date = self.date_end or fields.Date.today()
-        start_date = self.date_start or (end_date - timedelta(days=self.days_range))
 
-        opportunities = self.env['crm.lead'].search([
-            ('type', '=', 'opportunity'),
-            ('create_date', '>=', start_date),
-            ('create_date', '<=', end_date)
+    def _get_inventory_data(self):
+        """Extract inventory data for analysis"""
+        end_date = self.date_end 
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+
+        stock_moves = self.env['stock.move'].search([
+            ('date', '>=', start_date),
+            ('date', '<=', end_date),
+            ('state', '=', 'done')
         ])
         
-        if not opportunities:
-            return "No CRM opportunities found for the selected period."
+        if not stock_moves:
+            return "No inventory movements found for the selected period."
         
-        total_opps = len(opportunities)
-        won_opps = opportunities.filtered(lambda o: o.stage_id.is_won)
-        lost_opps = opportunities.filtered(lambda o: o.probability == 0)
+        # Analyze stock movements
+        total_moves = len(stock_moves)
+        incoming_moves = stock_moves.filtered(lambda m: m.location_dest_id.usage == 'internal')
+        outgoing_moves = stock_moves.filtered(lambda m: m.location_id.usage == 'internal')
         
-        total_value = sum(opportunities.mapped('expected_revenue'))
-        won_value = sum(won_opps.mapped('expected_revenue'))
+        # Product analysis
+        products = {}
+        for move in stock_moves:
+            product = move.product_id.name
+            if product not in products:
+                products[product] = {'in': 0, 'out': 0, 'net': 0}
+            
+            if move.location_dest_id.usage == 'internal':
+                products[product]['in'] += move.product_uom_qty
+            elif move.location_id.usage == 'internal':
+                products[product]['out'] += move.product_uom_qty
+            
+            products[product]['net'] = products[product]['in'] - products[product]['out']
         
-        win_rate = (len(won_opps) / total_opps * 100) if total_opps else 0
+        # Top moved products
+        top_products = sorted(products.items(), key=lambda x: abs(x[1]['net']), reverse=True)[:5]
         
-        # Pipeline by stage
-        stages = {}
-        for opp in opportunities:
-            stage = opp.stage_id.name
-            stages[stage] = stages.get(stage, 0) + 1
+        # Current stock levels (quants)
+        stock_quants = self.env['stock.quant'].search([
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0)
+        ])
+        
+        # Low stock products (assuming reorder point exists)
+        low_stock_products = []
+        for quant in stock_quants:
+            if quant.product_id.reordering_min_qty > 0 and quant.quantity <= quant.product_id.reordering_min_qty:
+                low_stock_products.append((quant.product_id.name, quant.quantity, quant.product_id.reordering_min_qty))
+        
+        total_stock_value = sum(quant.quantity * quant.product_id.standard_price for quant in stock_quants)
         
         return f"""
-CRM PERFORMANCE ({start_date} to {end_date}):
-• Total Opportunities: {total_opps}
-• Won Opportunities: {len(won_opps)}
-• Lost Opportunities: {len(lost_opps)}
-• Win Rate: {win_rate:.1f}%
-• Total Pipeline Value: ${total_value:,.2f}
-• Won Value: ${won_value:,.2f}
-• Pipeline by Stage: {', '.join([f"{stage}: {count}" for stage, count in stages.items()])}
+    INVENTORY PERFORMANCE ({start_date} to {end_date}):
+    • Total Stock Movements: {total_moves}
+    • Incoming Movements: {len(incoming_moves)}
+    • Outgoing Movements: {len(outgoing_moves)}
+    • Total Stock Value: ${total_stock_value:,.2f}
+    • Top Products by Movement: {', '.join([f"{name} (Net: {data['net']:.0f})" for name, data in top_products])}
+    • Low Stock Alerts: {len(low_stock_products)} products below reorder point
+    • Critical Stock Items: {', '.join([f"{name} ({qty:.0f}/{min_qty:.0f})" for name, qty, min_qty in low_stock_products[:3]])}
         """.strip()
-    
+
+    def _get_manufacturing_data(self):
+        """Extract manufacturing data for analysis"""
+        end_date = self.date_end
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+
+        manufacturing_orders = self.env['mrp.production'].search([
+            ('date_start', '>=', start_date),
+            ('date_start', '<=', end_date)
+        ])
+        
+        if not manufacturing_orders:
+            return "No manufacturing orders found for the selected period."
+        
+        total_orders = len(manufacturing_orders)
+        completed_orders = manufacturing_orders.filtered(lambda mo: mo.state == 'done')
+        in_progress_orders = manufacturing_orders.filtered(lambda mo: mo.state == 'progress')
+        planned_orders = manufacturing_orders.filtered(lambda mo: mo.state in ['draft', 'confirmed'])
+        
+        # Production analysis
+        total_produced = sum(completed_orders.mapped('product_qty'))
+        total_planned = sum(manufacturing_orders.mapped('product_qty'))
+        
+        # Product analysis
+        products_produced = {}
+        for order in completed_orders:
+            product = order.product_id.name
+            products_produced[product] = products_produced.get(product, 0) + order.product_qty
+        
+        top_products = sorted(products_produced.items(), key=lambda x: x[1], reverse=True)[:5]
+        
+        # Work center analysis
+        workorders = self.env['mrp.workorder'].search([
+            ('production_id', 'in', manufacturing_orders.ids)
+        ])
+        
+        work_centers = {}
+        for workorder in workorders:
+            wc = workorder.workcenter_id.name
+            work_centers[wc] = work_centers.get(wc, 0) + (workorder.duration or 0)
+        
+        # Efficiency metrics
+        on_time_orders = 0
+        for order in completed_orders:
+            if order.date_finished and order.date_deadline:
+                if order.date_finished <= order.date_deadline:
+                    on_time_orders += 1
+        
+        on_time_rate = (on_time_orders / len(completed_orders) * 100) if completed_orders else 0
+        
+        return f"""
+    MANUFACTURING PERFORMANCE ({start_date} to {end_date}):
+    • Total Manufacturing Orders: {total_orders}
+    • Completed Orders: {len(completed_orders)}
+    • In Progress Orders: {len(in_progress_orders)}
+    • Planned Orders: {len(planned_orders)}
+    • Total Units Produced: {total_produced:.0f}
+    • On-Time Delivery Rate: {on_time_rate:.1f}%
+    • Top Products Produced: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products])}
+    • Active Work Centers: {len(work_centers)} centers with {sum(work_centers.values()):.0f} total hours
+        """.strip()
+    # ...existing code...
+        # ...existing code...
     def _call_llm(self, data_text):
         """Call LLM API for summary generation"""
         
+        data_type = "Sales" if "SALES PERFORMANCE" in data_text else \
+                    "Inventory" if "INVENTORY PERFORMANCE" in data_text else \
+                    "Manufacturing" if "MANUFACTURING PERFORMANCE" in data_text else \
+                    "Combined Business"
+        
         prompt = f"""
-You are a business analyst. Analyze this business data and provide insights:
-
-{data_text}
-
-Please provide:
-1. Key Performance Highlights
-2. Notable Trends or Patterns  
-3. Business Insights
-4. Actionable Recommendations
-
-Keep it concise but insightful. Use bullet points and business language.
-Current date: {datetime.now().strftime('%Y-%m-%d')}
-Analysis requested by: {self.env.user.name}
+    You are a business analyst specializing in {data_type.lower()} operations. Analyze this business data and provide insights:
+    
+    {data_text}
+    
+    Please provide:
+    1. Key Performance Highlights
+    2. Notable Trends or Patterns  
+    3. Operational Insights
+    4. Actionable Recommendations
+    
+    Focus on {data_type.lower()}-specific metrics and KPIs. Keep it concise but insightful. Use bullet points and business language.
+    Current date: {datetime.now().strftime('%Y-%m-%d')}
+    Analysis requested by: {self.env.user.name}
         """.strip()
         
         if self.llm_provider == 'mock':
             return self._generate_mock_summary(data_text)
         elif self.llm_provider == 'groq':
-            return self._call_groq(prompt)
-
+            return self._call_groq_api(prompt)
         else:
-            return "<p>Please select an AI provider to generate summary.</p>"
+            return "<p>Please select a valid LLM provider.</p>"
+    # ...existing code...
     
+        # ...existing code...
     def _generate_mock_summary(self, data_text):
         """Generate a mock summary for demo purposes"""
         lines = data_text.strip().split('\n')
         
-        summary = f"""
-        <div style="font-family: Arial, sans-serif;">
-        <h3>🤖 AI Business Summary</h3>
-        <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
-        <p><strong>Analyst:</strong> {self.env.user.name}</p>
+        if "INVENTORY PERFORMANCE" in data_text:
+            summary = f"""
+            <h3>🏭 Inventory Analysis Summary</h3>
+            <p><strong>Analysis Period:</strong> {lines[0].split('(')[1].split(')')[0] if '(' in lines[0] else 'Recent period'}</p>
+            
+            <h4>📊 Key Inventory Metrics:</h4>
+            <ul>
+                <li>✅ <strong>Stock Movement Activity:</strong> Good inventory flow detected</li>
+                <li>📦 <strong>Stock Levels:</strong> Current inventory status reviewed</li>
+                <li>⚠️ <strong>Low Stock Alerts:</strong> Monitor reorder points closely</li>
+            </ul>
+            
+            <h4>💡 Inventory Insights:</h4>
+            <ul>
+                <li>Maintain optimal inventory levels to avoid stockouts</li>
+                <li>Review slow-moving items for potential clearance</li>
+                <li>Consider adjusting reorder points based on demand patterns</li>
+            </ul>
+            """
+        elif "MANUFACTURING PERFORMANCE" in data_text:
+            summary = f"""
+            <h3>🏭 Manufacturing Analysis Summary</h3>
+            <p><strong>Analysis Period:</strong> {lines[0].split('(')[1].split(')')[0] if '(' in lines[0] else 'Recent period'}</p>
+            
+            <h4>📊 Key Manufacturing Metrics:</h4>
+            <ul>
+                <li>🏭 <strong>Production Orders:</strong> Manufacturing pipeline active</li>
+                <li>⏰ <strong>On-Time Delivery:</strong> Schedule adherence tracked</li>
+                <li>🔧 <strong>Work Center Utilization:</strong> Resource allocation optimized</li>
+            </ul>
+            
+            <h4>💡 Manufacturing Insights:</h4>
+            <ul>
+                <li>Focus on improving on-time delivery rates</li>
+                <li>Optimize work center scheduling for better efficiency</li>
+                <li>Monitor production bottlenecks and capacity constraints</li>
+            </ul>
+            """
+        else:
+            # Default sales summary or combined
+            summary = f"""
+            <h3>📈 Business Analysis Summary</h3>
+            <p><strong>Analysis Period:</strong> Recent business performance</p>
+            
+            <h4>📊 Key Performance Indicators:</h4>
+            <ul>
+                <li>💰 <strong>Revenue Trends:</strong> Financial performance tracked</li>
+                <li>📦 <strong>Operational Efficiency:</strong> Process optimization opportunities</li>
+                <li>🎯 <strong>Strategic Focus:</strong> Areas for improvement identified</li>
+            </ul>
+            """
         
-        <h4>📊 Key Performance Highlights:</h4>
-        <ul>
-        <li>Data analysis completed for {self.days_range} days period</li>
-        <li>Summary type: {self.summary_type.title()}</li>
-        <li>Total data points analyzed: {len(lines)}</li>
-        </ul>
-        
-        <h4>📈 Business Insights:</h4>
-        <ul>
-        <li><strong>Performance Trend:</strong> Business metrics show activity in the analyzed period</li>
-        <li><strong>Data Quality:</strong> Sufficient data available for meaningful analysis</li>
-        <li><strong>Time Frame:</strong> {self.days_range}-day analysis provides good insights</li>
-        </ul>
-        
-        <h4>💡 Actionable Recommendations:</h4>
-        <ul>
-        <li>Continue monitoring key performance indicators</li>
-        <li>Set up regular AI-powered reporting</li>
-        <li>Consider integrating with real LLM providers for deeper insights</li>
-        <li>Focus on data-driven decision making</li>
-        </ul>
-        
-        <hr>
-        <p><em>This is a demo summary. Connect real LLM providers for advanced AI analysis.</em></p>
-        </div>
-        """
         return summary
+    # ...existing code...
     
     def _format_ai_response(self, ai_text):
         """Format AI response to structured HTML based on todo requirements"""
@@ -418,7 +499,7 @@ Analysis requested by: {self.env.user.name}
                 # Regular paragraphs
                 else:
                     # Close any open lists
-                    if html_parts and html_parts[-1] == '</li>':
+                    if html_parts and html_parts[-1].endswith('</li>'):
                         html_parts.append('</ul>')
                     html_parts.append(f"<p>{self._format_inline_text(line)}</p>")
         
@@ -446,10 +527,10 @@ Analysis requested by: {self.env.user.name}
             text = re.sub(f'\\b({term})\\b', r'<span class="highlight">\1</span>', text, flags=re.IGNORECASE)
         
         return text
-    
-    def _call_groq(self, prompt):
-        """Real Groq API call with improved response formatting"""
-        
+
+    def _call_groq_api(self, prompt):
+        """Real LLM API call with improved response formatting"""
+
         api_key = "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"  # Or get from system parameters
         
         try:
@@ -559,7 +640,7 @@ Analysis requested by: {self.env.user.name}
             meta_text = f"""
             <b>Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC<br/>
             <b>Generated by:</b> {self.env.user.name}<br/>
-            <b>Analysis Period:</b> {self.days_range} days<br/>
+            <b>Analysis Period:</b> {self.date_start} to {self.date_end}<br/>
             <b>AI Provider:</b> {dict(self._fields['llm_provider'].selection).get(self.llm_provider)}
             """
             meta_para = Paragraph(meta_text, styles['Normal'])
@@ -598,7 +679,6 @@ Analysis requested by: {self.env.user.name}
                 'url': f'/web/content/{attachment.id}?download=true',
                 'target': 'self',
             }
-            
         except ImportError:
             raise UserError("ReportLab library is not installed. Please install it using: pip install reportlab")
         except Exception as e:
@@ -687,7 +767,7 @@ Analysis requested by: {self.env.user.name}
         
         <div class="meta-info">
             <strong>Summary Type:</strong> {self.summary_type.title()}<br>
-            <strong>Analysis Period:</strong> {self.days_range} days<br>
+            <strong>Analysis Period:</strong> {self.date_start} to {self.date_end}<br>
             <strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC<br>
             <strong>Generated by:</strong> {self.env.user.name}<br>
             <strong>AI Provider:</strong> {dict(self._fields['llm_provider'].selection).get(self.llm_provider)}
@@ -704,7 +784,3 @@ Analysis requested by: {self.env.user.name}
         """
         
         return pdf_css + content_body + pdf_footer
-
-    # def _call_claude(self, prompt):
-    #     """Call Claude API - implement when ready"""
-    #     return "<p>Claude integration ready - add your API key to enable.</p>"

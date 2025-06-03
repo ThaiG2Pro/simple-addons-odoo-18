@@ -1,16 +1,1 @@
-1.Mặc định khi load dữ liệu, thì day range là 30
-end date là today, start day = end day - 30
-
-2. Khi người dùng chọn vào các tùy chọn khác nhau :
-7 ngày, 30 ngày, tháng này, 
-=> day range thay đổi, sau đó start day sẽ thay đổi,
-start day = end day (today) - day range
-
-3. Khi Người dùng chọn custome, và thay đổi start day hoặc end day
-thì day rang ko cần thay đổi. 
-
-4. Khi người dùng nhấn vào button và kích hoạt hàm action_generate_summary, thì,
-các hàm khác cũng sẽ lấy giá trị end date và start date sau cùng để tính toán,
-ví dụ hàm _get_sales_data()
-
-Lặp lại quá trình trên bao nhiêu lần thì vẫn nhận giá trị end date và start date cuối.
+Thay thế nguồn CRM thành nguồn từ tồn kho và sản xuất
