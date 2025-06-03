@@ -503,6 +503,7 @@ STOCK LEVEL ANALYSIS:
             """.strip())
         
         # Movement & Turnover
+        product_movements = None
         if 'movement_turnover' in selected_insights:
             product_movements = {}
             for move in stock_moves:
@@ -801,9 +802,44 @@ CAPACITY PLANNING:
 • Production Backlog: {len(planned_orders)} orders (${backlog_value:,.0f} value)
             """.strip())
 
+        # Production Performance (main summary)
+        if 'production_performance' in selected_insights or 'performance' in selected_insights:
+            total_orders = len(manufacturing_orders)
+            total_produced = sum(completed_orders.mapped('product_qty'))
+            total_planned = sum(manufacturing_orders.mapped('product_qty'))
+            on_time_orders = 0
+            for order in completed_orders:
+                if order.date_finished and order.date_deadline:
+                    if order.date_finished <= order.date_deadline:
+                        on_time_orders += 1
+            on_time_rate = (on_time_orders / len(completed_orders) * 100) if completed_orders else 0
+            products_produced = {}
+            for order in completed_orders:
+                product = order.product_id.name
+                products_produced[product] = products_produced.get(product, 0) + order.product_qty
+            top_products = sorted(products_produced.items(), key=lambda x: x[1], reverse=True)[:5]
+            workorders = self.env['mrp.workorder'].search([
+                ('production_id', 'in', manufacturing_orders.ids)
+            ])
+            work_centers = {}
+            for workorder in workorders:
+                wc = workorder.workcenter_id.name
+                work_centers[wc] = work_centers.get(wc, 0) + (workorder.duration or 0)
+            insights_data.append(f"""
+PRODUCTION PERFORMANCE:
+• Total Manufacturing Orders: {total_orders}
+• Completed Orders: {len(completed_orders)}
+• In Progress Orders: {len(in_progress_orders)}
+• Planned Orders: {len(planned_orders)}
+• Total Units Produced: {total_produced:.0f}
+• On-Time Delivery Rate: {on_time_rate:.1f}%
+• Top Products Produced: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products])}
+• Active Work Centers: {len(work_centers)} centers with {sum(work_centers.values()):.0f} total hours
+            """.strip())
+
         return f"""
 MANUFACTURING ANALYSIS ({start_date} to {end_date}) - FOCUSED INSIGHTS:
-Selected Insights: {', '.join([insight.name for insight in self.manufacturing_insights_multi])}
+Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing_insights_multi])}
 
 {chr(10).join(insights_data)}
         """.strip()
