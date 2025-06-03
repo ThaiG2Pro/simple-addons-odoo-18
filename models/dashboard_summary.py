@@ -33,47 +33,75 @@ class DashboardSummary(models.TransientModel):
         ('last_30', 'Last 30 Days'),
         ('this_month', 'This Month'),
         ('custom', 'Custom Range')
-    ], string='Range Type', default='last_30')
+    ], string='Range Type', default='last_30', required=True)
 
     # Keep compatibility
     days_range = fields.Integer(compute='_compute_days_range', inverse='_inverse_days_range', store=True)
 
-    @api.depends('date_start', 'date_end')
+    @api.depends('date_start', 'date_end', 'date_range_type')
     def _compute_days_range(self):
         for record in self:
             if record.date_start and record.date_end:
                 delta = record.date_end - record.date_start
-                record.days_range = delta.days
+                record.days_range = delta.days + 1
             else:
                 record.days_range = 30  # Default
+    def _inverse_days_range(self):
+        if record.days_range and record.date_end:
+            record.date_start = record.date_end - timedelta(days=record.days_range - 1)
+        elif record.days_range and not record.date_end:
+            today = fields.Date.today()
+            record.date_end = today
+            record.date_start = today - timedelta(days=record.days_range - 1)
     @api.onchange('date_range_type')
     def _onchange_date_range_type(self):
-        """Update date_start and date_end based on selected range type"""
+        if not self.date_range_type or self.date_range_type == 'custom':
+            return
         today = fields.Date.today()
-        
+        self.date_end = today
+
         if self.date_range_type == 'last_7':
             self.date_start = today - timedelta(days=7)
-            self.date_end = today
         elif self.date_range_type == 'last_30':
             self.date_start = today - timedelta(days=30)
-            self.date_end = today
         elif self.date_range_type == 'this_month':
             self.date_start = today.replace(day=1)
-            self.date_end = today
+
         # For 'custom', let the user set the dates
     @api.onchange('date_start')
     def _onchange_date_start(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
             self.date_end = self.date_start
+
+        if self.date_range_type != 'custom':
+            self.date_range_type = 'custom'
     @api.onchange('date_end')
     def _onchange_date_end(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
             self.date_start = self.date_end
+
+        if self.date_range_type != 'custom':
+            self.date_range_type = 'custom'
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-        # Set current date context
-        res['summary_text'] = f'<p>Ready to generate summary for {self.env.user.name}</p>'
+    
+        # Requirement 1: Default 30 days range, end_date = today, start_date = today - 30
+        today = fields.Date.today()
+    
+        if 'date_end' in fields_list:
+            res['date_end'] = today
+    
+        if 'date_start' in fields_list:
+            res['date_start'] = today - timedelta(days=30)
+    
+        if 'date_range_type' in fields_list:
+            res['date_range_type'] = 'last_30'
+    
+        # Set welcome message
+        if 'summary_text' in fields_list:
+            res['summary_text'] = f'<p>Ready to generate summary for {self.env.user.name}</p>'
+    
         return res
     
     def action_generate_summary(self):
@@ -109,9 +137,14 @@ class DashboardSummary(models.TransientModel):
     
     def _get_sales_data(self):
         """Extract sales data for analysis"""
-        end_date = self.date_end or fields.Date.today()
-        start_date = self.date_start or (end_date - timedelta(days=self.days_range))
-        
+        end_date = self.date_end 
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=self.days_range or 30)
+
         sales_orders = self.env['sale.order'].search([
             ('date_order', '>=', start_date),
             ('date_order', '<=', end_date),

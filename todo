@@ -1,39 +1,16 @@
-1. Xử lý nội dung từ Groq để có cấu trúc rõ ràng
-a. Nếu trả về là plain text:
-Dùng các đoạn mã hoặc hàm Python để:
-    Tách đoạn văn (\n\n)
-    Tách tiêu đề (#, ##, v.v.)
-    Dùng biểu thức chính quy để chuyển đổi sang HTML hoặc Markdown chuẩn
-b.Nếu trả về dạng Markdown:
-Dùng thư viện markdown trong Python để chuyển đổi sang HTML (vừa dùng để hiển thị, vừa render PDF đẹp sau):
-import markdown
-markdown_text = response_from_groq
-html = markdown.markdown(markdown_text)
+1.Mặc định khi load dữ liệu, thì day range là 30
+end date là today, start day = end day - 30
 
-2. Chuyển sang HTML để dễ trình bày và in ra PDF
-a. Biến Markdown hoặc text → HTML chuẩn
-Bạn có thể thêm CSS để trình bày đẹp mắt:
-<style>
-  body { font-family: "Arial"; line-height: 1.6; }
-  h1, h2, h3 { color: #2c3e50; margin-top: 20px; }
-  p { margin-bottom: 10px; }
-  code { background: #f4f4f4; padding: 2px 4px; }
-</style>
+2. Khi người dùng chọn vào các tùy chọn khác nhau :
+7 ngày, 30 ngày, tháng này, 
+=> day range thay đổi, sau đó start day sẽ thay đổi,
+start day = end day (today) - day range
 
-b. Chuyển HTML → PDF
-Dùng các thư viện như:
-🧾 WeasyPrint (gọn, đẹp, dễ dùng):
+3. Khi Người dùng chọn custome, và thay đổi start day hoặc end day
+thì day rang ko cần thay đổi. 
 
-from weasyprint import HTML
-HTML(string=html).write_pdf("output.pdf")
-🧾 Hoặc wkhtmltopdf nếu muốn nhiều tùy chỉnh.
+4. Khi người dùng nhấn vào button và kích hoạt hàm action_generate_summary, thì,
+các hàm khác cũng sẽ lấy giá trị end date và start date sau cùng để tính toán,
+ví dụ hàm _get_sales_data()
 
-BONUS: Giao diện đẹp trong Odoo?
-
-Trong Odoo (v17+), bạn có thể trình bày kết quả như sau:
-
-Dùng html field để hiển thị markdown đã render thành HTML
-
-Hiển thị trong form view với widget html
-
-<field name="response_html" widget="html"/>
+Lặp lại quá trình trên bao nhiêu lần thì vẫn nhận giá trị end date và start date cuối.
