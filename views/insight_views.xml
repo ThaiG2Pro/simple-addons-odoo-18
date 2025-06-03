@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Insight Option Tree View -->
+    <record id="view_insight_option_tree" model="ir.ui.view">
+        <field name="name">dashboard.insight.option.tree</field>
+        <field name="model">dashboard.insight.option</field>
+        <field name="arch" type="xml">
+            <list string="Insight Options">
+                <field name="name"/>
+                <field name="category"/>
+                <field name="code"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Insight Option Form View -->
+    <record id="view_insight_option_form" model="ir.ui.view">
+        <field name="name">dashboard.insight.option.form</field>
+        <field name="model">dashboard.insight.option</field>
+        <field name="arch" type="xml">
+            <form string="Insight Option">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="category"/>
+                        <field name="code"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Insight Option Action -->
+    <record id="action_insight_option" model="ir.actions.act_window">
+        <field name="name">Insight Options</field>
+        <field name="res_model">dashboard.insight.option</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Configure insight options for dashboard summaries
+            </p>
+        </field>
+    </record>
+
+    <!-- Create the parent menu first -->
+    <menuitem id="menu_dashboard_config"
+              name="Dashboard Configuration"
+              sequence="100"/>
+
+    <!-- Add to menu (as submenu under Settings for admin) -->
+    <menuitem id="menu_insight_option"
+              name="Insight Options"
+              parent="menu_dashboard_config"
+              action="action_insight_option"
+              sequence="10"/>
+</odoo>

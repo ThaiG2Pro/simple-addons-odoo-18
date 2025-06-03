@@ -30,6 +30,45 @@ class DashboardSummary(models.TransientModel):
     date_start = fields.Date(string='Start Date')
     date_end = fields.Date(string='End Date', default=fields.Date.today)
 
+    # New insight selection fields
+    sales_insights = fields.Selection([
+        ('revenue_trends', 'Revenue Trends & Performance'),
+        ('customer_analysis', 'Top Customers Analysis'),
+        ('product_performance', 'Product Sales Performance'),
+        ('order_patterns', 'Order Patterns & Behavior'),
+        ('growth_opportunities', 'Growth Opportunities'),
+    ], string='Sales Insight', help='Select specific sales insight to focus on')
+    
+    sales_insights_multi = fields.Many2many(
+        'dashboard.insight.option', 
+        'summary_sales_insight_rel', 
+        'summary_id', 
+        'insight_id',
+        string='Sales Insights (Select 2-3)',
+        domain=[('category', '=', 'sales')],
+        help='Select 2-3 specific sales insights'
+    )
+    
+    inventory_insights_multi = fields.Many2many(
+        'dashboard.insight.option', 
+        'summary_inventory_insight_rel', 
+        'summary_id', 
+        'insight_id',
+        string='Inventory Insights (Select 2-3)',
+        domain=[('category', '=', 'inventory')],
+        help='Select 2-3 specific inventory insights'
+    )
+    
+    manufacturing_insights_multi = fields.Many2many(
+        'dashboard.insight.option', 
+        'summary_manufacturing_insight_rel', 
+        'summary_id', 
+        'insight_id',
+        string='Manufacturing Insights (Select 2-3)',
+        domain=[('category', '=', 'manufacturing')],
+        help='Select 2-3 specific manufacturing insights'
+    )
+
     @api.onchange('date_start')
     def _onchange_date_start(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
@@ -39,6 +78,26 @@ class DashboardSummary(models.TransientModel):
     def _onchange_date_end(self):
         if self.date_start and self.date_end and self.date_start > self.date_end:
             self.date_start = self.date_end
+
+    @api.constrains('sales_insights_multi', 'inventory_insights_multi', 'manufacturing_insights_multi')
+    def _check_insight_limits(self):
+        """Ensure users select 2-3 insights maximum"""
+        for record in self:
+            if record.summary_type == 'sales' and len(record.sales_insights_multi) > 3:
+                raise ValidationError("Please select maximum 3 sales insights.")
+            if record.summary_type == 'inventory' and len(record.inventory_insights_multi) > 3:
+                raise ValidationError("Please select maximum 3 inventory insights.")
+            if record.summary_type == 'manufacturing' and len(record.manufacturing_insights_multi) > 3:
+                raise ValidationError("Please select maximum 3 manufacturing insights.")
+
+    @api.onchange('summary_type')
+    def _onchange_summary_type(self):
+        """Clear insight selections when summary type changes"""
+        if self.summary_type:
+            self.sales_insights_multi = [(5, 0, 0)]  # Clear all
+            self.inventory_insights_multi = [(5, 0, 0)]
+            self.manufacturing_insights_multi = [(5, 0, 0)]
+
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -54,22 +113,24 @@ class DashboardSummary(models.TransientModel):
         return res
     
     def action_generate_summary(self):
-        """Generate AI summary based on selected type"""
-        print(f"BEFORE: start={self.date_start}, end={self.date_end}")
+        """Generate AI summary based on selected type and insights"""
+        
         try:
-            
+            # Validate that insights are selected
+            self._validate_insight_selection()
 
             if self.summary_type == 'sales':
-                data_text = self._get_sales_data()
+                data_text = self._get_sales_data_selective()
             elif self.summary_type == 'inventory':
-                data_text = self._get_inventory_data()
+                data_text = self._get_inventory_data_selective()
             elif self.summary_type == 'manufacturing':
-                data_text = self._get_manufacturing_data()
+                data_text = self._get_manufacturing_data_selective()
             else:  # combined
                 sales_data = self._get_sales_data()
                 inventory_data = self._get_inventory_data()
                 manufacturing_data = self._get_manufacturing_data()
                 data_text = f"SALES DATA:\n{sales_data}\n\nINVENTORY DATA:\n{inventory_data}\n\nMANUFACTURING DATA:\n{manufacturing_data}"
+            
             # Store data preview
             self.data_preview = data_text
             
@@ -77,8 +138,6 @@ class DashboardSummary(models.TransientModel):
             summary = self._call_llm(data_text)
             self.summary_text = summary
             
-            # Restore the date values after processing
-            print(f"AFTER: start={self.date_start}, end={self.date_end}")
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'dashboard.summary',
@@ -88,12 +147,17 @@ class DashboardSummary(models.TransientModel):
                 'name': f'AI {self.summary_type.title()} Summary'
             }
             
-        #     return {
-        #     'type': 'ir.actions.client',
-        #     'tag': 'reload',
-        # }
         except Exception as e:
             raise UserError(f"Error generating summary: {str(e)}")
+
+    def _validate_insight_selection(self):
+        """Validate that appropriate insights are selected"""
+        if self.summary_type == 'sales' and not self.sales_insights_multi:
+            raise UserError("Please select at least one sales insight before generating summary.")
+        elif self.summary_type == 'inventory' and not self.inventory_insights_multi:
+            raise UserError("Please select at least one inventory insight before generating summary.")
+        elif self.summary_type == 'manufacturing' and not self.manufacturing_insights_multi:
+            raise UserError("Please select at least one manufacturing insight before generating summary.")
     
     def _get_sales_data(self):
         """Extract sales data for analysis"""
@@ -143,7 +207,167 @@ SALES PERFORMANCE ({start_date} to {end_date}):
 • Top Customers: {', '.join([f"{name} (${amount:,.0f})" for name, amount in top_customers])}
 • Top Products: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products])}
         """.strip()
-    
+
+    def _get_sales_data_selective(self):
+        """Extract sales data based on selected insights"""
+        end_date = self.date_end 
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+
+        selected_insights = self.sales_insights_multi.mapped('code')
+        
+        sales_orders = self.env['sale.order'].search([
+            ('date_order', '>=', start_date),
+            ('date_order', '<=', end_date),
+            ('state', 'in', ['sale', 'done'])
+        ])
+        
+        if not sales_orders:
+            return "No sales data found for the selected period."
+        
+        insights_data = []
+        
+        # Revenue Trends & Performance
+        if 'revenue_trends' in selected_insights:
+            total_amount = sum(sales_orders.mapped('amount_total'))
+            total_orders = len(sales_orders)
+            avg_order = total_amount / total_orders if total_orders else 0
+            
+            # Compare with previous period
+            prev_start = start_date - timedelta(days=(end_date - start_date).days)
+            prev_end = start_date - timedelta(days=1)
+            prev_orders = self.env['sale.order'].search([
+                ('date_order', '>=', prev_start),
+                ('date_order', '<=', prev_end),
+                ('state', 'in', ['sale', 'done'])
+            ])
+            prev_amount = sum(prev_orders.mapped('amount_total'))
+            growth_rate = ((total_amount - prev_amount) / prev_amount * 100) if prev_amount else 0
+            
+            insights_data.append(f"""
+REVENUE TRENDS & PERFORMANCE:
+• Current Period Revenue: ${total_amount:,.2f}
+• Total Orders: {total_orders}
+• Average Order Value: ${avg_order:,.2f}
+• Growth Rate vs Previous Period: {growth_rate:+.1f}%
+• Revenue per Day: ${total_amount / (end_date - start_date).days:,.2f}
+            """.strip())
+        
+        # Customer Analysis
+        if 'customer_analysis' in selected_insights:
+            customers = {}
+            customer_orders = {}
+            for order in sales_orders:
+                customer = order.partner_id.name
+                customers[customer] = customers.get(customer, 0) + order.amount_total
+                customer_orders[customer] = customer_orders.get(customer, 0) + 1
+            
+            top_customers = sorted(customers.items(), key=lambda x: x[1], reverse=True)[:5]
+            total_customers = len(customers)
+            avg_customer_value = sum(customers.values()) / total_customers if total_customers else 0
+            
+            insights_data.append(f"""
+TOP CUSTOMERS ANALYSIS:
+• Total Unique Customers: {total_customers}
+• Average Customer Value: ${avg_customer_value:,.2f}
+• Top 5 Customers: {', '.join([f"{name} (${amount:,.0f})" for name, amount in top_customers])}
+• Top Customer Orders: {', '.join([f"{name} ({customer_orders[name]} orders)" for name, _ in top_customers[:3]])}
+            """.strip())
+        
+        # Product Performance
+        if 'product_performance' in selected_insights:
+            order_lines = sales_orders.mapped('order_line')
+            products = {}
+            product_revenue = {}
+            for line in order_lines:
+                product = line.product_id.name
+                products[product] = products.get(product, 0) + line.product_uom_qty
+                product_revenue[product] = product_revenue.get(product, 0) + line.price_subtotal
+            
+            top_products_qty = sorted(products.items(), key=lambda x: x[1], reverse=True)[:5]
+            top_products_revenue = sorted(product_revenue.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+            insights_data.append(f"""
+PRODUCT SALES PERFORMANCE:
+• Top Products by Quantity: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products_qty])}
+• Top Products by Revenue: {', '.join([f"{name} (${rev:,.0f})" for name, rev in top_products_revenue])}
+• Total Products Sold: {len(products)} unique products
+• Total Quantity Sold: {sum(products.values()):.0f} units
+            """.strip())
+        
+        # Order Patterns
+        if 'order_patterns' in selected_insights:
+            # Analyze order patterns by day of week and month
+            from collections import defaultdict
+            day_patterns = defaultdict(int)
+            month_patterns = defaultdict(float)
+            
+            for order in sales_orders:
+                day_name = order.date_order.strftime('%A')
+                month_name = order.date_order.strftime('%B')
+                day_patterns[day_name] += 1
+                month_patterns[month_name] += order.amount_total
+            
+            peak_day = max(day_patterns.items(), key=lambda x: x[1]) if day_patterns else ('N/A', 0)
+            peak_month_revenue = max(month_patterns.items(), key=lambda x: x[1]) if month_patterns else ('N/A', 0)
+            
+            # Order size analysis
+            order_sizes = sales_orders.mapped('amount_total')
+            avg_size = sum(order_sizes) / len(order_sizes) if order_sizes else 0
+            large_orders = len([o for o in order_sizes if o > avg_size * 1.5])
+            
+            insights_data.append(f"""
+ORDER PATTERNS & BEHAVIOR:
+• Peak Order Day: {peak_day[0]} ({peak_day[1]} orders)
+• Peak Revenue Month: {peak_month_revenue[0]} (${peak_month_revenue[1]:,.0f})
+• Large Orders (>150% avg): {large_orders} orders
+• Order Size Distribution: Avg ${avg_size:,.0f}, Min ${min(order_sizes):,.0f}, Max ${max(order_sizes):,.0f}
+            """.strip())
+        
+        # Growth Opportunities
+        if 'growth_opportunities' in selected_insights:
+            # Identify opportunities based on data patterns
+            opportunities = []
+            
+            # Low-frequency customers with high value
+            customer_frequency = {}
+            for order in sales_orders:
+                customer = order.partner_id.name
+                customer_frequency[customer] = customer_frequency.get(customer, 0) + 1
+            
+            high_value_low_freq = []
+            for customer, revenue in customers.items():
+                if customer_frequency.get(customer, 0) <= 2 and revenue > avg_customer_value:
+                    high_value_low_freq.append(customer)
+            
+            # Product cross-sell opportunities
+            single_product_customers = 0
+            for customer in customers:
+                customer_products = set()
+                for order in sales_orders.filtered(lambda o: o.partner_id.name == customer):
+                    for line in order.order_line:
+                        customer_products.add(line.product_id.name)
+                if len(customer_products) == 1:
+                    single_product_customers += 1
+            
+            insights_data.append(f"""
+SALES GROWTH OPPORTUNITIES:
+• High-Value Low-Frequency Customers: {len(high_value_low_freq)} customers (upsell opportunity)
+• Single-Product Customers: {single_product_customers} customers (cross-sell opportunity)
+• Market Expansion: Focus on {peak_day[0]}s for promotions
+• Product Bundling: Top products could be bundled for increased AOV
+            """.strip())
+        
+        return f"""
+SALES ANALYSIS ({start_date} to {end_date}) - FOCUSED INSIGHTS:
+Selected Insights: {', '.join([insight.name for insight in self.sales_insights_multi])}
+
+{chr(10).join(insights_data)}
+        """.strip()
 
     def _get_inventory_data(self):
         """Extract inventory data for analysis"""
@@ -211,6 +435,192 @@ SALES PERFORMANCE ({start_date} to {end_date}):
     • Critical Stock Items: {', '.join([f"{name} ({qty:.0f}/{min_qty:.0f})" for name, qty, min_qty in low_stock_products[:3]])}
         """.strip()
 
+    def _get_inventory_data_selective(self):
+        """Extract inventory data based on selected insights"""
+        end_date = self.date_end 
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+
+        selected_insights = self.inventory_insights_multi.mapped('code')
+        insights_data = []
+        
+        # Get base inventory data
+        stock_moves = self.env['stock.move'].search([
+            ('date', '>=', start_date),
+            ('date', '<=', end_date),
+            ('state', '=', 'done')
+        ])
+        
+        stock_quants = self.env['stock.quant'].search([
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0)
+        ])
+        
+        if not stock_moves and not stock_quants:
+            return "No inventory data found for the selected period."
+        
+        # Stock Level Analysis
+        if 'stock_levels' in selected_insights:
+            total_stock_value = sum(quant.quantity * quant.product_id.standard_price for quant in stock_quants)
+            total_items = len(stock_quants)
+            avg_stock_value = total_stock_value / total_items if total_items else 0
+            
+            # High value products
+            high_value_products = []
+            for quant in stock_quants:
+                product_value = quant.quantity * quant.product_id.standard_price
+                if product_value > avg_stock_value * 2:
+                    high_value_products.append((quant.product_id.name, product_value, quant.quantity))
+            
+            high_value_products = sorted(high_value_products, key=lambda x: x[1], reverse=True)[:5]
+            
+            insights_data.append(f"""
+STOCK LEVEL ANALYSIS:
+• Total Stock Value: ${total_stock_value:,.2f}
+• Total Stock Items: {total_items} products
+• Average Product Value: ${avg_stock_value:,.2f}
+• High-Value Inventory: {', '.join([f"{name} (${val:,.0f})" for name, val, qty in high_value_products])}
+• Stock Distribution: {len([q for q in stock_quants if q.quantity > 100])} products with >100 units
+            """.strip())
+        
+        # Movement & Turnover
+        if 'movement_turnover' in selected_insights:
+            total_moves = len(stock_moves)
+            incoming_moves = stock_moves.filtered(lambda m: m.location_dest_id.usage == 'internal')
+            outgoing_moves = stock_moves.filtered(lambda m: m.location_id.usage == 'internal')
+            
+            # Calculate turnover for products
+            product_movements = {}
+            for move in stock_moves:
+                product = move.product_id.name
+                if product not in product_movements:
+                    product_movements[product] = {'in': 0, 'out': 0}
+                
+                if move.location_dest_id.usage == 'internal':
+                    product_movements[product]['in'] += move.product_uom_qty
+                elif move.location_id.usage == 'internal':
+                    product_movements[product]['out'] += move.product_uom_qty
+            
+            # Calculate turnover rates
+            high_turnover = []
+            for product, movements in product_movements.items():
+                if movements['out'] > 0:
+                    turnover = movements['out'] / max(movements['in'], 1)
+                    if turnover > 0.5:  # High turnover threshold
+                        high_turnover.append((product, turnover, movements['out']))
+            
+            high_turnover = sorted(high_turnover, key=lambda x: x[1], reverse=True)[:5]
+            
+            insights_data.append(f"""
+MOVEMENT & TURNOVER ANALYSIS:
+• Total Stock Movements: {total_moves}
+• Incoming Movements: {len(incoming_moves)} ({len(incoming_moves)/total_moves*100:.1f if total_moves else 0}%)
+• Outgoing Movements: {len(outgoing_moves)} ({len(outgoing_moves)/total_moves*100:.1f if total_moves else 0}%)
+• High Turnover Products: {', '.join([f"{name} ({rate:.1f}x turnover)" for name, rate, out in high_turnover])}
+• Movement Velocity: {total_moves / (end_date - start_date).days:.1f} movements per day
+            """.strip())
+        
+        # Reorder Alerts
+        if 'reorder_alerts' in selected_insights:
+            low_stock_products = []
+            critical_stock_products = []
+            for quant in stock_quants:
+                if quant.product_id.reordering_min_qty > 0:
+                    if quant.quantity <= quant.product_id.reordering_min_qty:
+                        low_stock_products.append((quant.product_id.name, quant.quantity, quant.product_id.reordering_min_qty))
+                    if quant.quantity <= quant.product_id.reordering_min_qty * 0.5:
+                        critical_stock_products.append((quant.product_id.name, quant.quantity, quant.product_id.reordering_min_qty))
+            
+            # Stockout risk prediction
+            stockout_risk = []
+            for product, movements in product_movements.items():
+                if movements['out'] > 0:
+                    current_stock = next((q.quantity for q in stock_quants if q.product_id.name == product), 0)
+                    avg_daily_usage = movements['out'] / (end_date - start_date).days
+                    days_until_stockout = current_stock / avg_daily_usage if avg_daily_usage > 0 else float('inf')
+                    if days_until_stockout < 30:  # Less than 30 days
+                        stockout_risk.append((product, days_until_stockout, current_stock))
+            
+            stockout_risk = sorted(stockout_risk, key=lambda x: x[1])[:5]
+            
+            insights_data.append(f"""
+LOW STOCK & REORDER ALERTS:
+• Products Below Reorder Point: {len(low_stock_products)} items
+• Critical Stock Items: {', '.join([f"{name} ({qty:.0f}/{min_qty:.0f})" for name, qty, min_qty in critical_stock_products[:3]])}
+• Stockout Risk (30 days): {', '.join([f"{name} ({days:.0f} days)" for name, days, stock in stockout_risk])}
+• Immediate Action Required: {len(critical_stock_products)} critical items
+            """.strip())
+        
+        # Product Performance Inventory
+        if 'product_performance_inv' in selected_insights:
+            # Fast vs slow moving analysis
+            fast_moving = []
+            slow_moving = []
+            
+            for product, movements in product_movements.items():
+                total_movement = movements['in'] + movements['out']
+                if total_movement > 10:  # Fast moving threshold
+                    fast_moving.append((product, total_movement))
+                elif total_movement < 2:  # Slow moving threshold
+                    slow_moving.append((product, total_movement))
+            
+            fast_moving = sorted(fast_moving, key=lambda x: x[1], reverse=True)[:5]
+            slow_moving = sorted(slow_moving, key=lambda x: x[1])[:5]
+            
+            # Dead stock analysis
+            dead_stock = []
+            for quant in stock_quants:
+                product = quant.product_id.name
+                if product not in product_movements or product_movements[product]['out'] == 0:
+                    dead_stock.append((product, quant.quantity, quant.quantity * quant.product_id.standard_price))
+            
+            dead_stock = sorted(dead_stock, key=lambda x: x[2], reverse=True)[:5]
+            
+            insights_data.append(f"""
+PRODUCT PERFORMANCE (INVENTORY):
+• Fast-Moving Products: {', '.join([f"{name} ({moves:.0f} movements)" for name, moves in fast_moving])}
+• Slow-Moving Products: {', '.join([f"{name} ({moves:.0f} movements)" for name, moves in slow_moving])}
+• Dead Stock Items: {', '.join([f"{name} (${val:,.0f})" for name, qty, val in dead_stock])}
+• Movement Categories: {len(fast_moving)} fast, {len(slow_moving)} slow, {len(dead_stock)} dead stock
+            """.strip())
+        
+        # Inventory Optimization
+        if 'optimization' in selected_insights:
+            # Calculate optimization opportunities
+            total_value = sum(quant.quantity * quant.product_id.standard_price for quant in stock_quants)
+            dead_stock_value = sum(val for _, _, val in dead_stock) if 'product_performance_inv' in selected_insights else 0
+            
+            # Overstock analysis
+            overstock_items = []
+            for quant in stock_quants:
+                if quant.product_id.reordering_max_qty > 0 and quant.quantity > quant.product_id.reordering_max_qty:
+                    excess_qty = quant.quantity - quant.product_id.reordering_max_qty
+                    excess_value = excess_qty * quant.product_id.standard_price
+                    overstock_items.append((quant.product_id.name, excess_qty, excess_value))
+            
+            overstock_value = sum(val for _, _, val in overstock_items)
+            space_utilization = len([q for q in stock_quants if q.quantity > 0]) / max(len(stock_quants), 1) * 100
+            
+            insights_data.append(f"""
+INVENTORY OPTIMIZATION OPPORTUNITIES:
+• Total Inventory Investment: ${total_value:,.2f}
+• Dead Stock Value: ${dead_stock_value:,.2f} ({dead_stock_value/total_value*100:.1f}% of total)
+• Overstock Value: ${overstock_value:,.2f} ({len(overstock_items)} items)
+• Space Utilization: {space_utilization:.1f}%
+• Optimization Potential: ${dead_stock_value + overstock_value:,.2f} in working capital
+            """.strip())
+        
+        return f"""
+INVENTORY ANALYSIS ({start_date} to {end_date}) - FOCUSED INSIGHTS:
+Selected Insights: {', '.join([insight.name for insight in self.inventory_insights_multi])}
+
+{chr(10).join(insights_data)}
+        """.strip()
+
     def _get_manufacturing_data(self):
         """Extract manufacturing data for analysis"""
         end_date = self.date_end
@@ -276,30 +686,262 @@ SALES PERFORMANCE ({start_date} to {end_date}):
     • Top Products Produced: {', '.join([f"{name} ({qty:.0f} units)" for name, qty in top_products])}
     • Active Work Centers: {len(work_centers)} centers with {sum(work_centers.values()):.0f} total hours
         """.strip()
-    # ...existing code...
-        # ...existing code...
+
+    def _get_manufacturing_data_selective(self):
+        """Extract manufacturing data based on selected insights"""
+        end_date = self.date_end
+        start_date = self.date_start 
+
+        if not end_date:
+            end_date = fields.Date.today()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+
+        selected_insights = self.manufacturing_insights_multi.mapped('code')
+        insights_data = []
+        
+        # Get base manufacturing data
+        manufacturing_orders = self.env['mrp.production'].search([
+            ('date_start', '>=', start_date),
+            ('date_start', '<=', end_date)
+        ])
+        
+        if not manufacturing_orders:
+            return "No manufacturing orders found for the selected period."
+        
+        completed_orders = manufacturing_orders.filtered(lambda mo: mo.state == 'done')
+        in_progress_orders = manufacturing_orders.filtered(lambda mo: mo.state == 'progress')
+        planned_orders = manufacturing_orders.filtered(lambda mo: mo.state in ['draft', 'confirmed'])
+        
+        # Production Performance
+        if 'production_performance' in selected_insights:
+            total_produced = sum(completed_orders.mapped('product_qty'))
+            total_planned = sum(manufacturing_orders.mapped('product_qty'))
+            completion_rate = len(completed_orders) / len(manufacturing_orders) * 100 if manufacturing_orders else 0
+            
+            # Calculate efficiency metrics
+            total_planned_hours = sum(order.planned_hours or 0 for order in completed_orders)
+            total_actual_hours = sum(order.duration or 0 for order in completed_orders)
+            efficiency_rate = (total_planned_hours / total_actual_hours * 100) if total_actual_hours else 0
+            
+            # Production capacity utilization
+            daily_production = total_produced / (end_date - start_date).days if total_produced else 0
+            
+            insights_data.append(f"""
+PRODUCTION PERFORMANCE:
+• Total Units Produced: {total_produced:.0f} units
+• Production Completion Rate: {completion_rate:.1f}%
+• Production Efficiency: {efficiency_rate:.1f}% (planned vs actual hours)
+• Daily Production Average: {daily_production:.1f} units/day
+• Capacity Utilization: {len(completed_orders)}/{len(manufacturing_orders)} orders completed
+• Output vs Planned: {total_produced}/{total_planned:.0f} units ({total_produced/total_planned*100:.1f if total_planned else 0}%)
+            """.strip())
+        
+        # Order Planning & Status
+        if 'order_planning' in selected_insights:
+            # Analyze order status distribution
+            total_orders = len(manufacturing_orders)
+            
+            # Planning accuracy
+            on_schedule_orders = 0
+            delayed_orders = 0
+            for order in manufacturing_orders:
+                if order.date_deadline and order.date_start:
+                    if order.date_start <= order.date_deadline:
+                        on_schedule_orders += 1
+                    else:
+                        delayed_orders += 1
+            
+            # Lead time analysis
+            lead_times = []
+            for order in completed_orders:
+                if order.date_start and order.date_finished:
+                    lead_time = (order.date_finished - order.date_start).days
+                    lead_times.append(lead_time)
+            
+            avg_lead_time = sum(lead_times) / len(lead_times) if lead_times else 0
+            
+            # Backlog analysis
+            backlog_value = sum(order.product_qty * (order.product_id.standard_price or 0) for order in planned_orders)
+            
+            insights_data.append(f"""
+ORDER STATUS & PLANNING:
+• Total Manufacturing Orders: {total_orders}
+• Completed: {len(completed_orders)} | In Progress: {len(in_progress_orders)} | Planned: {len(planned_orders)}
+• Planning Accuracy: {on_schedule_orders}/{on_schedule_orders + delayed_orders} orders on schedule
+• Average Lead Time: {avg_lead_time:.1f} days
+• Production Backlog: {len(planned_orders)} orders (${backlog_value:,.0f} value)
+• Order Flow: {len(completed_orders)/(end_date - start_date).days:.1f} orders completed per day
+            """.strip())
+        
+        # Quality & On-time Delivery
+        if 'quality_delivery' in selected_insights:
+            # On-time delivery calculation
+            on_time_orders = 0
+            late_orders = 0
+            total_delay_days = 0
+            
+            for order in completed_orders:
+                if order.date_finished and order.date_deadline:
+                    if order.date_finished <= order.date_deadline:
+                        on_time_orders += 1
+                    else:
+                        late_orders += 1
+                        delay_days = (order.date_finished - order.date_deadline).days
+                        total_delay_days += delay_days
+            
+            on_time_rate = (on_time_orders / len(completed_orders) * 100) if completed_orders else 0
+            avg_delay = total_delay_days / late_orders if late_orders else 0
+            
+            # Quality metrics (assuming scrap/waste tracking)
+            total_scrap = sum(order.scrap_ids.mapped('scrap_qty') for order in completed_orders if order.scrap_ids)
+            scrap_rate = (total_scrap / total_produced * 100) if total_produced else 0
+            
+            # First-pass yield
+            successful_orders = completed_orders.filtered(lambda o: o.state == 'done' and not o.scrap_ids)
+            first_pass_yield = len(successful_orders) / len(completed_orders) * 100 if completed_orders else 0
+            
+            insights_data.append(f"""
+QUALITY & ON-TIME DELIVERY:
+• On-Time Delivery Rate: {on_time_rate:.1f}% ({on_time_orders}/{len(completed_orders)} orders)
+• Late Deliveries: {late_orders} orders (avg {avg_delay:.1f} days late)
+• First-Pass Yield: {first_pass_yield:.1f}% orders without rework
+• Scrap Rate: {scrap_rate:.2f}% of total production
+• Quality Performance: {len(successful_orders)}/{len(completed_orders)} clean completions
+            """.strip())
+        
+        # Work Center Efficiency
+        if 'workcenter_efficiency' in selected_insights:
+            workorders = self.env['mrp.workorder'].search([
+                ('production_id', 'in', manufacturing_orders.ids)
+            ])
+            
+            work_centers = {}
+            work_center_efficiency = {}
+            work_center_utilization = {}
+            
+            for workorder in workorders:
+                wc_name = workorder.workcenter_id.name
+                duration = workorder.duration or 0
+                planned_duration = workorder.duration_expected or 0
+                
+                work_centers[wc_name] = work_centers.get(wc_name, 0) + duration
+                
+                if planned_duration > 0:
+                    efficiency = (planned_duration / duration * 100) if duration > 0 else 0
+                    work_center_efficiency[wc_name] = work_center_efficiency.get(wc_name, []) + [efficiency]
+            
+            # Calculate average efficiency per work center
+            avg_efficiency_per_wc = {}
+            for wc, efficiencies in work_center_efficiency.items():
+                avg_efficiency_per_wc[wc] = sum(efficiencies) / len(efficiencies) if efficiencies else 0
+            
+            # Find bottlenecks (work centers with longest durations)
+            bottlenecks = sorted(work_centers.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_efficient = sorted(avg_efficiency_per_wc.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            total_work_hours = sum(work_centers.values())
+            avg_wc_utilization = total_work_hours / len(work_centers) if work_centers else 0
+            
+            insights_data.append(f"""
+WORK CENTER EFFICIENCY:
+• Total Work Centers Active: {len(work_centers)}
+• Total Production Hours: {total_work_hours:.1f} hours
+• Average Work Center Utilization: {avg_wc_utilization:.1f} hours/center
+• Potential Bottlenecks: {', '.join([f"{name} ({hours:.1f}h)" for name, hours in bottlenecks])}
+• Most Efficient Centers: {', '.join([f"{name} ({eff:.1f}%)" for name, eff in top_efficient])}
+• Total Workorders: {len(workorders)} across {len(work_centers)} centers
+            """.strip())
+        
+        # Production Cost Analysis
+        if 'cost_analysis' in selected_insights:
+            # Calculate production costs
+            total_material_cost = 0
+            total_labor_cost = 0
+            total_overhead_cost = 0
+            
+            for order in completed_orders:
+                # Material costs from move lines
+                material_cost = sum(move.product_uom_qty * (move.product_id.standard_price or 0) 
+                                  for move in order.move_raw_ids if move.state == 'done')
+                total_material_cost += material_cost
+                
+                # Labor costs (estimated from work center rates and duration)
+                labor_cost = sum((wo.duration or 0) * (wo.workcenter_id.costs_hour or 0) 
+                               for wo in order.workorder_ids)
+                total_labor_cost += labor_cost
+            
+            total_production_cost = total_material_cost + total_labor_cost
+            cost_per_unit = total_production_cost / total_produced if total_produced else 0
+            
+            # Cost breakdown
+            material_percentage = (total_material_cost / total_production_cost * 100) if total_production_cost else 0
+            labor_percentage = (total_labor_cost / total_production_cost * 100) if total_production_cost else 0
+            
+            # Most expensive products to produce
+            product_costs = {}
+            for order in completed_orders:
+                product = order.product_id.name
+                order_cost = sum(move.product_uom_qty * (move.product_id.standard_price or 0) 
+                               for move in order.move_raw_ids if move.state == 'done')
+                order_cost += sum((wo.duration or 0) * (wo.workcenter_id.costs_hour or 0) 
+                                for wo in order.workorder_ids)
+                product_costs[product] = product_costs.get(product, 0) + order_cost
+            
+            expensive_products = sorted(product_costs.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            insights_data.append(f"""
+PRODUCTION COST ANALYSIS:
+• Total Production Cost: ${total_production_cost:,.2f}
+• Material Costs: ${total_material_cost:,.2f} ({material_percentage:.1f}%)
+• Labor Costs: ${total_labor_cost:,.2f} ({labor_percentage:.1f}%)
+• Cost per Unit: ${cost_per_unit:.2f}
+• Most Expensive Products: {', '.join([f"{name} (${cost:,.0f})" for name, cost in expensive_products])}
+• Cost Efficiency: {total_produced / (total_production_cost / 1000):.1f} units per $1K
+            """.strip())
+        
+        return f"""
+MANUFACTURING ANALYSIS ({start_date} to {end_date}) - FOCUSED INSIGHTS:
+Selected Insights: {', '.join([insight.name for insight in self.manufacturing_insights_multi])}
+
+{chr(10).join(insights_data)}
+        """.strip()
+
     def _call_llm(self, data_text):
         """Call LLM API for summary generation"""
         
-        data_type = "Sales" if "SALES PERFORMANCE" in data_text else \
-                    "Inventory" if "INVENTORY PERFORMANCE" in data_text else \
-                    "Manufacturing" if "MANUFACTURING PERFORMANCE" in data_text else \
+        data_type = "Sales" if "SALES ANALYSIS" in data_text else \
+                    "Inventory" if "INVENTORY ANALYSIS" in data_text else \
+                    "Manufacturing" if "MANUFACTURING ANALYSIS" in data_text else \
                     "Combined Business"
         
+        # Get selected insights for context
+        selected_insights = []
+        if "SALES ANALYSIS" in data_text and self.sales_insights_multi:
+            selected_insights = [insight.name for insight in self.sales_insights_multi]
+        elif "INVENTORY ANALYSIS" in data_text and self.inventory_insights_multi:
+            selected_insights = [insight.name for insight in self.inventory_insights_multi]
+        elif "MANUFACTURING ANALYSIS" in data_text and self.manufacturing_insights_multi:
+            selected_insights = [insight.name for insight in self.manufacturing_insights_multi]
+        
+        insight_focus = f"Focus specifically on these selected insights: {', '.join(selected_insights)}" if selected_insights else ""
+        
         prompt = f"""
-    You are a business analyst specializing in {data_type.lower()} operations. Analyze this business data and provide insights:
-    
-    {data_text}
-    
-    Please provide:
-    1. Key Performance Highlights
-    2. Notable Trends or Patterns  
-    3. Operational Insights
-    4. Actionable Recommendations
-    
-    Focus on {data_type.lower()}-specific metrics and KPIs. Keep it concise but insightful. Use bullet points and business language.
-    Current date: {datetime.now().strftime('%Y-%m-%d')}
-    Analysis requested by: {self.env.user.name}
+You are a business analyst specializing in {data_type.lower()} operations. Analyze this targeted business data and provide insights:
+
+{data_text}
+
+{insight_focus}
+
+Please provide a focused analysis with:
+1. Key Performance Highlights (specific to selected insights)
+2. Notable Trends or Patterns in the selected areas
+3. Operational Insights (actionable intelligence)
+4. Strategic Recommendations (based on the focused insights)
+
+Keep it concise but insightful. Use bullet points and business language. Focus only on the selected insight areas.
+Current date: {datetime.now().strftime('%Y-%m-%d')}
+Analysis requested by: {self.env.user.name}
         """.strip()
         
         if self.llm_provider == 'mock':
@@ -308,55 +950,79 @@ SALES PERFORMANCE ({start_date} to {end_date}):
             return self._call_groq_api(prompt)
         else:
             return "<p>Please select a valid LLM provider.</p>"
-    # ...existing code...
     
-        # ...existing code...
     def _generate_mock_summary(self, data_text):
-        """Generate a mock summary for demo purposes"""
+        """Generate a mock summary for demo purposes based on selective insights"""
         lines = data_text.strip().split('\n')
         
-        if "INVENTORY PERFORMANCE" in data_text:
+        # Extract period from data
+        period_line = next((line for line in lines if 'Selected Insights:' in line), '')
+        selected_insights_text = period_line.replace('Selected Insights:', '').strip() if period_line else ''
+        
+        if "INVENTORY ANALYSIS" in data_text:
             summary = f"""
-            <h3>🏭 Inventory Analysis Summary</h3>
+            <h3>🏭 Focused Inventory Analysis Summary</h3>
             <p><strong>Analysis Period:</strong> {lines[0].split('(')[1].split(')')[0] if '(' in lines[0] else 'Recent period'}</p>
+            <p><strong>Selected Focus Areas:</strong> {selected_insights_text or 'Multiple insights'}</p>
             
-            <h4>📊 Key Inventory Metrics:</h4>
+            <h4>📊 Targeted Inventory Insights:</h4>
             <ul>
-                <li>✅ <strong>Stock Movement Activity:</strong> Good inventory flow detected</li>
-                <li>📦 <strong>Stock Levels:</strong> Current inventory status reviewed</li>
-                <li>⚠️ <strong>Low Stock Alerts:</strong> Monitor reorder points closely</li>
+                <li>✅ <strong>Focused Analysis:</strong> Targeted insights based on your selection</li>
+                <li>📦 <strong>Selective Data Review:</strong> Only relevant metrics analyzed</li>
+                <li>⚠️ <strong>Action-Oriented:</strong> Specific recommendations for selected areas</li>
             </ul>
             
-            <h4>💡 Inventory Insights:</h4>
+            <h4>💡 Focused Recommendations:</h4>
             <ul>
-                <li>Maintain optimal inventory levels to avoid stockouts</li>
-                <li>Review slow-moving items for potential clearance</li>
-                <li>Consider adjusting reorder points based on demand patterns</li>
+                <li>Concentrate on the selected insight areas for maximum impact</li>
+                <li>Implement targeted improvements in your chosen focus areas</li>
+                <li>Monitor KPIs specifically related to your selected insights</li>
             </ul>
             """
-        elif "MANUFACTURING PERFORMANCE" in data_text:
+        elif "MANUFACTURING ANALYSIS" in data_text:
             summary = f"""
-            <h3>🏭 Manufacturing Analysis Summary</h3>
+            <h3>🏭 Focused Manufacturing Analysis Summary</h3>
             <p><strong>Analysis Period:</strong> {lines[0].split('(')[1].split(')')[0] if '(' in lines[0] else 'Recent period'}</p>
+            <p><strong>Selected Focus Areas:</strong> {selected_insights_text or 'Multiple insights'}</p>
             
-            <h4>📊 Key Manufacturing Metrics:</h4>
+            <h4>📊 Targeted Manufacturing Insights:</h4>
             <ul>
-                <li>🏭 <strong>Production Orders:</strong> Manufacturing pipeline active</li>
-                <li>⏰ <strong>On-Time Delivery:</strong> Schedule adherence tracked</li>
-                <li>🔧 <strong>Work Center Utilization:</strong> Resource allocation optimized</li>
+                <li>🏭 <strong>Selective Production Analysis:</strong> Focus on chosen operational areas</li>
+                <li>⏰ <strong>Targeted Performance Review:</strong> Specific metrics for selected insights</li>
+                <li>🔧 <strong>Focused Optimization:</strong> Targeted improvement opportunities</li>
             </ul>
             
-            <h4>💡 Manufacturing Insights:</h4>
+            <h4>💡 Strategic Recommendations:</h4>
             <ul>
-                <li>Focus on improving on-time delivery rates</li>
-                <li>Optimize work center scheduling for better efficiency</li>
-                <li>Monitor production bottlenecks and capacity constraints</li>
+                <li>Prioritize improvements in your selected focus areas</li>
+                <li>Implement targeted changes based on specific insights</li>
+                <li>Track progress in the areas you've chosen to analyze</li>
+            </ul>
+            """
+        elif "SALES ANALYSIS" in data_text:
+            summary = f"""
+            <h3>📈 Focused Sales Analysis Summary</h3>
+            <p><strong>Analysis Period:</strong> {lines[0].split('(')[1].split(')')[0] if '(' in lines[0] else 'Recent period'}</p>
+            <p><strong>Selected Focus Areas:</strong> {selected_insights_text or 'Multiple insights'}</p>
+            
+            <h4>📊 Targeted Sales Insights:</h4>
+            <ul>
+                <li>💰 <strong>Focused Revenue Analysis:</strong> Specific to your selected areas</li>
+                <li>📊 <strong>Targeted Performance Review:</strong> Key metrics for chosen insights</li>
+                <li>🎯 <strong>Strategic Focus:</strong> Actionable intelligence for selected areas</li>
+            </ul>
+            
+            <h4>💡 Growth Recommendations:</h4>
+            <ul>
+                <li>Concentrate efforts on your selected focus areas</li>
+                <li>Implement targeted strategies based on specific insights</li>
+                <li>Monitor progress in the areas most important to your goals</li>
             </ul>
             """
         else:
-            # Default sales summary or combined
+            # Default combined summary
             summary = f"""
-            <h3>📈 Business Analysis Summary</h3>
+            <h3>📈 Comprehensive Business Analysis Summary</h3>
             <p><strong>Analysis Period:</strong> Recent business performance</p>
             
             <h4>📊 Key Performance Indicators:</h4>
@@ -368,7 +1034,6 @@ SALES PERFORMANCE ({start_date} to {end_date}):
             """
         
         return summary
-    # ...existing code...
     
     def _format_ai_response(self, ai_text):
         """Format AI response to structured HTML based on todo requirements"""
@@ -733,7 +1398,7 @@ SALES PERFORMANCE ({start_date} to {end_date}):
                 p { margin-bottom: 8px; }
                 ul, ol { margin-left: 15px; }
                 li { margin-bottom: 3px; }
-                .highlight { background: #f39c12; color: white; padding: 1px 3px; }
+                .highlight { background: #f39c12; color: white; padding: 1px 3px; border-radius: 3px; }
                 .number { color: #e74c3c; font-weight: bold; }
                 .footer { 
                     position: fixed; 

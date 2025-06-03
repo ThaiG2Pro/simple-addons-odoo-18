@@ -22,14 +22,25 @@
                     <group>
                         <group>
                             <field name="summary_type"/>
-                           
                             <field name="date_start"/>
                             <field name="date_end" />
                         </group>
                         <group>
                             <field name="llm_provider"/>
-                           
                         </group>
+                    </group>
+                    
+                    <!-- Insight Selection Section -->
+                    <group string="📊 Select Specific Insights (2-3 maximum)" colspan="4">
+                        <field name="sales_insights_multi" widget="many2many_tags" 
+                               invisible="summary_type != 'sales'" required="summary_type == 'sales'"
+                               options="{'color_field': 'color', 'no_create': True}"/>
+                        <field name="inventory_insights_multi" widget="many2many_tags"
+                               invisible="summary_type != 'inventory'" required="summary_type == 'inventory'"
+                               options="{'color_field': 'color', 'no_create': True}"/>
+                        <field name="manufacturing_insights_multi" widget="many2many_tags"
+                               invisible="summary_type != 'manufacturing'" required="summary_type == 'manufacturing'"
+                               options="{'color_field': 'color', 'no_create': True}"/>
                     </group>
                     
                     <notebook>
