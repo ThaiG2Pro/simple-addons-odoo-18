@@ -13,7 +13,7 @@
     """,
     'author': 'ThaiG2Pro',
     'website': 'https://www.yourcompany.com',
-    'depends': ['base', 'sale', 'crm'],
+    'depends': ['base', 'sale', 'crm', 'mrp', 'stock'],
     'external_dependencies': {
         'python': ['markdown', 'requests']}, # weasyprint is optional for PDF export
     'data': [

@@ -17,6 +17,21 @@
               parent="menu_simple_dashboard_root"
               action="crm.crm_lead_opportunities"
               sequence="20"/>
+              
+    <!-- Manufacturing Menu -->
+    <menuitem id="menu_simple_dashboard_mrp"
+              name="Manufacturing Overview"
+              parent="menu_simple_dashboard_root"
+              action="mrp.mrp_production_action"
+              sequence="25"/>
+              
+    <!-- Inventory Menu -->
+    <menuitem id="menu_simple_dashboard_inventory"
+              name="Inventory Overview"
+              parent="menu_simple_dashboard_root"
+              action="stock.stock_picking_action_picking_type"
+              sequence="27"/>
+              
     <!-- NEW: AI Summary Menu -->
     <menuitem id="menu_simple_dashboard_ai_summary"
               name="🤖 AI Summary"
