@@ -945,16 +945,16 @@ Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing
     def _is_markdown_format(self, text):
         """Check if the text contains Markdown formatting"""
         markdown_patterns = [
-            r'^#{1,6}\s',  # Headers (#, ##, ###, etc.)
-            r'^\*{1,2}.*\*{1,2}',  # Bold/italic (*text*, **text**)
-            r'^\s*[-*+]\s',  # Bullet points (-, *, +)
-            r'^\s*\d+\.\s',  # Numbered lists (1., 2., etc.)
-            r'`.*`',  # Inline code blocks
-            r'^```',  # Fenced code blocks
-            r'^\|.*\|',  # Table formatting
+            r'^#{1,6}\s',  # Headers
+            r'^\*{1,2}[^*]+\*{1,2}',  # Bold/italic with content
+            r'^\s*[-*+]\s',  # Bullet points
+            r'^\s*\d+\.\s',  # Numbered lists
+            r'`[^`]+`',  # Inline code blocks with content
+            r'^```[^`]*```',  # Fenced code blocks
+            r'^\|.+\|$',  # Table row
             r'^\s*>\s',  # Blockquotes
-            r'\[.*\]\(.*\)',  # Links [text](url)
-            r'!\[.*\]\(.*\)',  # Images ![alt](url)
+            r'\[[^\]]+\]\([^)]+\)',  # Links with content
+            r'!\[[^\]]*\]\([^)]+\)',  # Images
             r'^---+$',  # Horizontal rules
         ]
         
@@ -964,14 +964,34 @@ Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing
             if re.search(pattern, text, re.MULTILINE):
                 pattern_count += 1
         
+        # More reliable detection - consider it markdown for common patterns
+        if pattern_count >= 1 and (re.search(r'^#{1,6}\s', text, re.MULTILINE) or 
+                                 re.search(r'^\s*[-*+]\s', text, re.MULTILINE) or
+                                 re.search(r'^\s*\d+\.\s', text, re.MULTILINE)):
+            return True
+        
         # Consider it markdown if we find 2 or more patterns
         return pattern_count >= 2
     
     def _convert_markdown_to_html(self, markdown_text):
         """Convert Markdown to HTML using markdown library"""
         try:
+            # Use more extensions for better support
+            extensions = [
+                'tables', 
+                'fenced_code', 
+                'nl2br',        # Convert newlines to <br>
+                'smarty',       # Smart quotes/dashes
+                'sane_lists'    # Better list handling
+            ]
+            
             # Convert markdown to HTML
-            html_content = markdown.markdown(markdown_text, extensions=['tables', 'fenced_code'])
+            html_content = markdown.markdown(markdown_text, extensions=extensions)
+            
+            # Post-process the HTML content
+            # Sometimes the markdown library doesn't properly handle certain patterns
+            html_content = re.sub(r'<p>\s*<ul>', '<ul>', html_content)
+            html_content = re.sub(r'</ul>\s*</p>', '</ul>', html_content)
             
             # Add custom CSS styling
             css_styles = """
@@ -991,87 +1011,17 @@ Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing
                 table { border-collapse: collapse; width: 100%; margin: 10px 0; }
                 th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
                 th { background-color: #f2f2f2; font-weight: bold; }
+                .highlight { background: #f39c12; color: white; padding: 2px 4px; border-radius: 3px; }
+                .number { color: #e74c3c; font-weight: bold; }
             </style>
             """
             
             return f"{css_styles}<div class='ai-response'>{html_content}</div>"
             
         except Exception as e:
-            # Fallback to plain text conversion if markdown fails
+            # Log the error before falling back to plain text
+            print(f"Markdown conversion error: {str(e)}")
             return self._convert_plain_text_to_html(markdown_text)
-    
-    def _convert_plain_text_to_html(self, plain_text):
-        """Convert plain text to structured HTML using regex patterns"""
-        
-        # Split text into paragraphs
-        paragraphs = plain_text.split('\n\n')
-        html_parts = []
-        
-        css_styles = """
-        <style>
-            .ai-response { font-family: "Arial", sans-serif; line-height: 1.6; margin: 20px; }
-            .ai-response h1, .ai-response h2, .ai-response h3 { color: #2c3e50; margin-top: 20px; margin-bottom: 10px; }
-            .ai-response h1 { font-size: 24px; border-bottom: 2px solid #3498db; }
-            .ai-response h2 { font-size: 20px; color: #34495e; }
-            .ai-response h3 { font-size: 16px; color: #7f8c8d; }
-            .ai-response p { margin-bottom: 10px; color: #2c3e50; }
-            .ai-response ul { margin-left: 20px; margin-bottom: 15px; }
-            .ai-response li { margin-bottom: 5px; }
-            .ai-response .highlight { background: #f39c12; color: white; padding: 2px 4px; border-radius: 3px; }
-            .ai-response .number { color: #e74c3c; font-weight: bold; }
-        </style>
-        """
-        
-        for paragraph in paragraphs:
-            if not paragraph.strip():
-                continue
-                
-            lines = paragraph.strip().split('\n')
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Convert headers (lines starting with numbers or special patterns)
-                if re.match(r'^\d+\.\s*(.+)', line):
-                    match = re.match(r'^\d+\.\s*(.+)', line)
-                    html_parts.append(f"<h2>{match.group(1)}</h2>")
-                
-                # Convert bullet points
-                elif re.match(r'^[-•*]\s*(.+)', line):
-                    if not html_parts or not html_parts[-1].startswith('<ul>'):
-                        html_parts.append('<ul>')
-                    match = re.match(r'^[-•*]\s*(.+)', line)
-                    content = self._format_inline_text(match.group(1))
-                    html_parts.append(f"<li>{content}</li>")
-                
-                # Convert lines with colons (like "Key Insights:")
-                elif ':' in line and len(line.split(':')[0]) < 50:
-                    parts = line.split(':', 1)
-                    if len(parts) == 2:
-                        title = parts[0].strip()
-                        content = parts[1].strip()
-                        if content:
-                            html_parts.append(f"<h3>{title}:</h3><p>{self._format_inline_text(content)}</p>")
-                        else:
-                            html_parts.append(f"<h3>{title}:</h3>")
-                    else:
-                        html_parts.append(f"<p>{self._format_inline_text(line)}</p>")
-                
-                # Regular paragraphs
-                else:
-                    # Close any open lists
-                    if html_parts and html_parts[-1].endswith('</li>'):
-                        html_parts.append('</ul>')
-                    html_parts.append(f"<p>{self._format_inline_text(line)}</p>")
-        
-        # Close any remaining open lists
-        if html_parts and html_parts[-1].endswith('</li>'):
-            html_parts.append('</ul>')
-        
-        html_content = ''.join(html_parts)
-        return f"{css_styles}<div class='ai-response'>{html_content}</div>"
     
     def _format_inline_text(self, text):
         """Format inline text elements like bold, numbers, etc."""
@@ -1093,7 +1043,10 @@ Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing
 
     def _call_groq_api(self, prompt):
         """Real LLM API call with improved response formatting"""
-
+        
+        # Add specific instructions for formatting
+        enhanced_prompt = f"{prompt}\n\nPlease format your response using Markdown with headers (#, ##), bullet points, and emphasis where appropriate."
+        
         api_key = "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"  # Or get from system parameters
         
         try:
@@ -1105,7 +1058,7 @@ Selected Insights: {chr(10).join([insight.name for insight in self.manufacturing
                 },
                 json={
                     'model': 'llama-3.3-70b-versatile',  # Groq's model
-                    'messages': [{'role': 'user', 'content': prompt}],
+                    'messages': [{'role': 'user', 'content': enhanced_prompt}],
                     'max_tokens': 800,
                     'temperature': 0.7
                 },
