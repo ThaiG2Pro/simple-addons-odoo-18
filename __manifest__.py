@@ -8,13 +8,22 @@
         - Top menu with sub-menus
         - View core information from Sales
         - View core information from CRM
+        - AI powered insights with selective focus areas
+        - Customizable insight selection (2-3 insights per source)
     """,
-    'author': 'Your Company',
+    'author': 'ThaiG2Pro',
     'website': 'https://www.yourcompany.com',
-    'depends': ['base', 'sale', 'crm'],
+    'depends': ['base', 'sale', 'crm', 'mrp', 'stock'],
+    'external_dependencies': {
+        'python': ['markdown', 'requests']}, # weasyprint is optional for PDF export
     'data': [
+        'security/ir.model.access.csv',
         'views/dashboard_views.xml',
-    ],
+        'views/summary_views.xml',
+        'views/insight_views.xml'
+    ],  
+    
+    'post_init_hook': 'post_init_hook',
     'installable': True,
     'auto_install': False,
     'application': True,
